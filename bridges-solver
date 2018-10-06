@@ -1,0 +1,141 @@
+#!/usr/bin/env ruby
+
+require "pry"
+require "z3"
+
+class BridgesSolver
+  def initialize(*puzzle)
+    @puzzle = puzzle
+    @solver = Z3::Solver.new
+    @size = puzzle.size
+    @vars = (0...@size).map{|i|
+      (0...@size).map{|j|
+        {
+          l: Z3.Int("b[#{i},#{j}].l"),
+          r: Z3.Int("b[#{i},#{j}].r"),
+          u: Z3.Int("b[#{i},#{j}].u"),
+          d: Z3.Int("b[#{i},#{j}].d"),
+        }
+      }
+    }
+  end
+
+  def each_index
+    (0...@size).each do |i|
+      (0...@size).each do |j|
+        yield(i, j)
+      end
+    end
+  end
+
+  def add_constraints
+    all_vars = @vars.flatten.flat_map(&:values)
+    all_vars.each do |var|
+      @solver.assert var >= 0
+      @solver.assert var <= 2
+    end
+
+    each_index do |i, j|
+      puzzle_value = @puzzle[i][j]
+      if puzzle_value == "."
+        # Can't cross
+        @solver.assert Z3.Or(
+          @vars[i][j][:l] == 0,
+          @vars[i][j][:u] == 0,
+        )
+        # It passes them through
+        @solver.assert @vars[i][j][:l] == @vars[i][j][:r]
+        @solver.assert @vars[i][j][:u] == @vars[i][j][:d]
+      else
+        @solver.assert Z3.Add(
+          *@vars[i][j].values
+        ) == puzzle_value.to_i
+      end
+    end
+
+    (0..@size-1).each do |i|
+      (0..@size-2).each do |j|
+        @solver.assert @vars[i][j][:r] == @vars[i][j+1][:l]
+      end
+    end
+
+    (0..@size-2).each do |i|
+      (0..@size-1).each do |j|
+        @solver.assert @vars[i][j][:d] == @vars[i+1][j][:u]
+      end
+    end
+
+    # Nothing goes out
+    (0...@size).each do |i|
+      @solver.assert @vars[0][i][:u] == 0
+      @solver.assert @vars[@size-1][i][:d] == 0
+      @solver.assert @vars[i][0][:l] == 0
+      @solver.assert @vars[i][@size-1][:r] == 0
+    end
+
+    # TODO
+  end
+
+  def print_cell(var)
+    actual = @model[var].to_s.to_i
+    if actual == 0
+      print " "
+    elsif actual == 1
+      print "-"
+    elsif actual == 2
+      print "="
+    end
+  end
+
+  def print_puzzle_value(val)
+    print(val)
+  end
+
+  def print_solution
+    (0...@size).each do |i|
+      # UP
+      (0...@size).each do |j|
+        print " "
+        print_cell(@vars[i][j][:u])
+        print " "
+      end
+      print "\n"
+
+      # MIDDLE
+      (0...@size).each do |j|
+        print_cell(@vars[i][j][:l])
+        print_puzzle_value @puzzle[i][j]
+        print_cell(@vars[i][j][:r])
+      end
+      print "\n"
+
+      # DOWN
+      (0...@size).each do |j|
+        print " "
+        print_cell(@vars[i][j][:d])
+        print " "
+      end
+      print "\n"
+    end
+  end
+
+  def call
+    add_constraints
+    unless @solver.satisfiable?
+      puts "No solution"
+      return
+    end
+    @model = @solver.model
+    print_solution
+  end
+end
+
+BridgesSolver.new(
+  "3...6.3",
+  ".......",
+  "4...6.3",
+  ".......",
+  ".2.3..2",
+  ".......",
+  "3.....3",
+).call

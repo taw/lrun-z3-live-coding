@@ -1,0 +1,119 @@
+#!/usr/bin/env ruby
+
+require "pry"
+require "z3"
+
+class NonogramSolver
+  def initialize(rows, cols)
+    @rows = rows
+    @cols = cols
+    @solver = Z3::Solver.new
+    @size = rows.size
+    raise unless rows.size == cols.size
+    @board = (0...@size).map{|i|
+      (0...@size).map{|j|
+        Z3.Bool("b[#{i},#{j}]")
+      }
+    }
+  end
+
+  def ensure_gap(groups)
+    groups.each_cons(2) do |g1,g2|
+      @solver.assert (g2[:s] - g1[:e]) >= 2
+    end
+  end
+
+  def ensure_board_match(groups, cells)
+    cells.each_with_index do |cell, i|
+      @solver.assert cell == Z3.Or(
+        *groups.map{|g|
+          (i >= g[:s]) & (i <= g[:e])
+        }
+      )
+    end
+  end
+
+  def add_constraints
+    @row_group_vars = @rows.map.with_index do |row, rowi|
+      row.map.with_index do |group, groupi|
+        gstart = Z3.Int("gr[#{rowi},#{groupi}].s")
+        gend = Z3.Int("gr[#{rowi},#{groupi}].e")
+        @solver.assert gstart >= 0
+        @solver.assert gend <= @size - 1
+        @solver.assert (gend-gstart+1) == group
+        {s: gstart, e: gend}
+      end
+    end
+
+    @col_group_vars = @cols.map.with_index do |col, coli|
+      col.map.with_index do |group, groupi|
+        gstart = Z3.Int("gc[#{coli},#{groupi}].s")
+        gend = Z3.Int("gc[#{coli},#{groupi}].e")
+        @solver.assert gstart >= 0
+        @solver.assert gend <= @size - 1
+        @solver.assert (gend-gstart+1) == group
+        {s: gstart, e: gend}
+      end
+    end
+
+    @row_group_vars.each_with_index do |groups_for_one_row,i|
+      ensure_gap(groups_for_one_row)
+      ensure_board_match(groups_for_one_row, @board[i])
+    end
+    @col_group_vars.each_with_index do |groups_for_one_col,i|
+      ensure_gap(groups_for_one_col)
+      ensure_board_match(groups_for_one_col, @board.transpose[i])
+    end
+  end
+
+  def print_solution
+    (0...@size).each do |i|
+      (0...@size).each do |j|
+        actual = @model[@board[i][j]].to_s
+        if actual == "true"
+          print "#"
+        else
+          print "\u00B7"
+        end
+      end
+      print "\n"
+    end
+  end
+
+  def call
+    add_constraints
+    unless @solver.satisfiable?
+      puts "No solution"
+      return
+    end
+    @model = @solver.model
+    print_solution
+  end
+end
+
+NonogramSolver.new(
+  [
+    [3,5],
+    [3,4],
+    [6],
+    [6],
+    [2,4],
+    [1,3],
+    [3],
+    [1,2],
+    [2,1],
+    [3,1],
+  ],
+  [
+    [1,2],
+    [1,1,1],
+    [3,2],
+    [3,3],
+    [3],
+    [1,5],
+    [7],
+    [7],
+    [2,2,1],
+    [2,3],
+  ],
+).call

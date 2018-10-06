@@ -1,0 +1,87 @@
+#!/usr/bin/env ruby
+
+require "pry"
+require "z3"
+
+@puzzle = [
+  "........",
+  ".●......",
+  "..●..●●.",
+  ".●...●..",
+  "..●...○.",
+  "●.●.○...",
+  "●...○..○",
+  "...○.○.○",
+]
+
+@solver = Z3::Solver.new
+
+@solution = (0..7).map{|i|
+  (0..7).map{|j|
+    Z3.Int("cell[#{i},#{j}]")
+  }
+}
+@solution.flatten.each do |var|
+  @solver.assert var >= 0
+  @solver.assert var <= 1
+end
+
+(0..7).each do |i|
+  (0..7).each do |j|
+    actual = @puzzle[i][j]
+    if actual == "●"
+      @solver.assert @solution[i][j] == 1
+    elsif actual == "○"
+      @solver.assert @solution[i][j] == 0
+    end
+  end
+end
+
+def not_same(vars)
+  @solver.assert Z3.Or(
+    vars[0] == 0,
+    vars[1] == 0,
+    vars[2] == 0,
+  )
+  @solver.assert Z3.Or(
+    vars[0] == 1,
+    vars[1] == 1,
+    vars[2] == 1,
+  )
+end
+
+def no_three_same(row)
+  row.each_cons(3) do |three_vars|
+    not_same three_vars
+  end
+end
+
+def sums_to_four(row)
+  @solver.assert Z3.Add(*row) == 4
+end
+
+(0..7).each do |i|
+  no_three_same(@solution[i])
+  no_three_same(@solution.transpose[i])
+  sums_to_four(@solution[i])
+  sums_to_four(@solution.transpose[i])
+end
+
+unless @solver.satisfiable?
+  STDERR.puts "There is no solution"
+  exit 1
+end
+
+model = @solver.model
+
+(0..7).each do |i|
+  (0..7).each do |j|
+    val = model[@solution[i][j]]
+    if val.to_s == "1"
+      print "\u25CF"
+    else
+      print "\u25CB"
+    end
+  end
+  print "\n"
+end
